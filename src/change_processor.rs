@@ -167,17 +167,33 @@ impl JobThreadContext {
 
         // For a given VFS event, we might have many changes to different parts
         // of the tree. Calculate and apply all of these changes.
+        //
+        // Canonicalization races against the filesystem: during a folder deletion
+        // (e.g. from an editor that removes children before the folder) the path —
+        // or its parent — may already be gone by the time we process the event.
+        // Fall back to the event's own path instead of panicking; if it no longer
+        // maps to anything in the tree, the containing directory's own Remove
+        // event handles the subtree.
         let applied_patches = match event {
             VfsEvent::Create(path) | VfsEvent::Write(path) => {
-                self.apply_patches(self.vfs.canonicalize(&path).unwrap())
+                let normalized = self
+                    .vfs
+                    .canonicalize(&path)
+                    .unwrap_or_else(|_| path.clone());
+                self.apply_patches(normalized)
             }
             VfsEvent::Remove(path) => {
-                // MemoFS does not track parent removals yet, so we can canonicalize
-                // the parent path safely and then append the removed path's file name.
-                let parent = path.parent().unwrap();
-                let file_name = path.file_name().unwrap();
-                let parent_normalized = self.vfs.canonicalize(parent).unwrap();
-                self.apply_patches(parent_normalized.join(file_name))
+                // MemoFS does not track parent removals yet, so we canonicalize
+                // the parent path and then append the removed path's file name.
+                let normalized = match (path.parent(), path.file_name()) {
+                    (Some(parent), Some(file_name)) => self
+                        .vfs
+                        .canonicalize(parent)
+                        .map(|parent_normalized| parent_normalized.join(file_name))
+                        .unwrap_or_else(|_| path.clone()),
+                    _ => path.clone(),
+                };
+                self.apply_patches(normalized)
             }
             _ => {
                 log::warn!("Unhandled VFS event: {:?}", event);

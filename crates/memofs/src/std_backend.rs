@@ -5,13 +5,20 @@ use std::time::Duration;
 use std::{collections::HashSet, io};
 
 use crossbeam_channel::Receiver;
-use notify::{watcher, DebouncedEvent, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{DebouncedEvent, PollWatcher, RecursiveMode, Watcher};
 
 use crate::{DirEntry, Metadata, ReadDir, VfsBackend, VfsEvent};
 
 /// `VfsBackend` that uses `std::fs` and the `notify` crate.
+///
+/// WWS fork: uses notify's `PollWatcher` instead of the native
+/// `ReadDirectoryChangesW` watcher. The native watcher holds an open handle on
+/// the parent directory of every watched file, which on Windows blocks
+/// renaming (and therefore recycling) any watched folder — editors like VSCode
+/// then show "folder in use" prompts and fall back to a hard delete. Polling
+/// holds no handles, so folder deletes and recycle-bin moves work normally.
 pub struct StdBackend {
-    watcher: RecommendedWatcher,
+    watcher: PollWatcher,
     watcher_receiver: Receiver<VfsEvent>,
     watches: HashSet<PathBuf>,
 }
@@ -19,7 +26,8 @@ pub struct StdBackend {
 impl StdBackend {
     pub fn new() -> io::Result<StdBackend> {
         let (notify_tx, notify_rx) = mpsc::channel();
-        let watcher = watcher(notify_tx, Duration::from_millis(50)).map_err(io::Error::other)?;
+        let watcher =
+            PollWatcher::new(notify_tx, Duration::from_millis(350)).map_err(io::Error::other)?;
 
         let (tx, rx) = crossbeam_channel::unbounded();
 
