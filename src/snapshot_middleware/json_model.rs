@@ -129,6 +129,7 @@ fn json_model_from_pair<'sync>(
             }
         }
     }
+    properties.sort_keys();
 
     let mut children = Vec::with_capacity(new_inst.children().len());
 

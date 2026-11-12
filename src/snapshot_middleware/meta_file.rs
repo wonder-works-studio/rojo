@@ -143,6 +143,7 @@ impl AdjacentMetadata {
                 }
             }
         }
+        properties.sort_keys();
 
         Ok(Some(Self {
             ignore_unknown_instances: if ignore_unknown_instances {
@@ -371,6 +372,7 @@ impl DirectoryMetadata {
                 }
             }
         }
+        properties.sort_keys();
 
         Ok(Some(Self {
             ignore_unknown_instances: if ignore_unknown_instances {
